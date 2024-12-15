@@ -1,0 +1,20 @@
+import cv2
+import matplotlib.pyplot as plt
+import numpy as np
+import random
+from scipy import signal as sp
+im=cv2.imread('C:\\Users\\Bar Blas\\Desktop\\HWimage\\Images\\umbrella.tif',0)
+F=np.fft.fft2(im)
+Fshift = np.fft.fftshift(F)
+row, col =im.shape
+kernel=np.zeros([row,col])
+kernel[0][0]=0.5
+kernel[4][79]=0.5
+Fker=np.fft.fft2(kernel)
+Fkershift = np.fft.fftshift(Fker)
+Fkershiftconj=np.conj(Fkershift)
+new=Fshift*Fkershiftconj/((Fkershift*Fkershiftconj)+0.0001)
+g = np.abs(np.fft.ifft2(np.fft.ifftshift(new)))
+plt.imshow(g, cmap='gray')
+plt.axis('off')
+plt.show()
