@@ -1,0 +1,39 @@
+import cv2
+import matplotlib.pyplot as plt
+import numpy as np
+import random
+from scipy import signal as sp
+im=cv2.imread("C:\\Users\\Public\\git_images\\house\\house.tif",0)
+plt.imshow(im,cmap='gray')
+plt.show()
+F=np.fft.fft2(im)
+Fshift = np.fft.fftshift(F)
+plt.imshow(np.log1p(np.abs(Fshift)),cmap='gray')
+plt.show()
+
+row, col =im.shape
+kernel=np.zeros([row,col])
+kernel[int(row/2)+95,int(col/2)-95:int(row/2)-85]=1
+kernel=kernel/(np.sum(kernel))
+Fker=np.fft.fft2(kernel)
+Fkershift = np.fft.fftshift(Fker)
+plt.imshow(np.log1p(np.abs(Fkershift)),cmap='gray')
+plt.show()
+
+
+new=Fshift/Fkershift
+plt.imshow(np.log1p(np.abs(new)),cmap='gray')
+plt.show()
+
+G = np.fft.ifftshift(new)
+plt.imshow(np.log1p(np.abs(G)),cmap='gray')
+plt.axis('off')
+plt.show()
+
+g = np.abs(np.fft.ifft2(G))
+plt.imshow(g, cmap='gray')
+plt.axis('off')
+plt.show()
+
+
+
