@@ -1,0 +1,14 @@
+import cv2
+import matplotlib.pyplot as plt
+import numpy as np
+import random
+from scipy import signal as sp
+im=cv2.imread('C:\\Users\\Bar Blas\\Desktop\\HWimage\\Images\\windmill.tif',0)
+F=np.fft.fft2(im)
+dft_shift = np.fft.fftshift(F)
+dft_shift[124,100]=1
+dft_shift[131:133,156]=1
+img_back = np.fft.ifft2(np.fft.ifftshift(dft_shift))
+plt.subplot(122),plt.imshow(abs(img_back), cmap = 'gray')
+plt.title('Magnitude Spectrum'), plt.xticks([]), plt.yticks([])
+plt.show()
