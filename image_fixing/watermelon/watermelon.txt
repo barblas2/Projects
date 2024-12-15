@@ -1,0 +1,14 @@
+import cv2
+import matplotlib.pyplot as plt
+import numpy as np
+import random
+from scipy import signal as sp
+im=cv2.imread('C:\\Users\\Bar Blas\\Desktop\\HWimage\\Images\\watermelon.tif',0)
+cv2.imshow('with noise', im)
+cv2.waitKey(0)
+
+filter=np.array([[-1,- 1, -1],[-1,9,-1],[-1,-1,-1]])
+sharp=cv2.filter2D(im,-1,filter)
+cv2.imshow('with noise', sharp)
+cv2.waitKey(0)
+
