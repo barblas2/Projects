@@ -1,0 +1,25 @@
+import socket
+
+# Define server address
+server_address = ('10.156.11.1', 2231)
+
+# Create a socket
+client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+client.connect(server_address)
+
+try:
+    # Receive the size of file
+    size_data = client.recv(4)
+    size = int.from_bytes(size_data, byteorder='big')
+
+    # Receive the file in chunks
+    file_data = b''
+    while len(file_data) < size:
+        chunk = client.recv(min(4096, size - len(file_data)))
+        if not chunk:
+            break
+        file_data += chunk
+
+    # Save the received file
+    with open('new_received_file.dng', 'wb') as file:
+        file.write(file_data)
