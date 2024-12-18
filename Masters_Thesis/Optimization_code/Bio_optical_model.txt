@@ -1,0 +1,257 @@
+#Libs
+import numpy as np
+import matplotlib.pyplot as plt
+from scipy.optimize import curve_fit
+from scipy.optimize import minimize
+import pandas as pd
+from scipy.optimize import basinhopping
+
+
+#read data
+lam_jerlov=np.linspace(400,700,num=201-53)
+
+a_w = pd.read_excel("C:\\Users\\Bar Blas\\Desktop\\pure_sea_water\\buit_pure.xlsx")
+a_w = a_w.iloc[53:201, 3:4].values
+A_E =pd.read_excel("C:\\Users\\Bar Blas\\Desktop\\A_E\\A_E.xlsx")
+optim_k=pd.read_csv('C:\\Users\Public\\images_project\\final_optim\\kd_guess.csv',header=None)
+kd_jerlov=optim_k.iloc[0:32].values.flatten()
+kd_jerlov=np.interp(lam_jerlov,np.linspace(400,700,num=31),np.squeeze(kd_jerlov))
+
+A_E = A_E.iloc[53:201, 0:50]
+#kd_jerlov=(A_E.iloc[:, 3].values)
+#plt.plot(lam_jerlov,kd_jerlov2)
+#plt.plot(lam_jerlov,kd_jerlov, color= 'b')
+#plt.show()
+
+#kd_jerlov=(A_E.iloc[:, 7].values)
+a_jerlov=(A_E.iloc[:, 8].values)
+b_jerlov=(A_E.iloc[:,9].values)
+c_jerlov=a_jerlov+b_jerlov
+
+
+
+lam=np.linspace(400,700,num=201-53)
+global mu
+mu = 0.90
+run=5
+vars=[]
+mus=[]
+cost=[]
+all_min=[]
+
+
+leg=[]
+#for i in range(3,43,4):
+    #print(i)
+    #kd_jerlov = (A_E.iloc[:, i].values)
+    #a_jerlov = (A_E.iloc[:, i+1].values)
+    #b_jerlov = (A_E.iloc[:, i+2].values)
+   # c_jerlov = a_jerlov + b_jerlov
+  #  plt.plot(lam, b_jerlov / c_jerlov)
+ #   leg.append(str(i))
+#plt.legend(leg)
+#plt.show()
+#z
+
+
+
+
+
+
+for i in range(run):
+    mu=mu+0.01
+    def k_model(intiall_guess):
+        chl=intiall_guess[0]
+        M=intiall_guess[1]
+        alpha=intiall_guess[2]
+        Bs=intiall_guess[3]
+        Bl=intiall_guess[4]
+        lam=np.linspace(400,700,num=201-53)
+        a_w = pd.read_excel("C:\\Users\\Bar Blas\\Desktop\\pure_sea_water\\buit_pure.xlsx")
+        a_w = a_w.iloc[53:201, 3].values
+        A_E =pd.read_excel("C:\\Users\\Bar Blas\\Desktop\\A_E\\A_E.xlsx")
+        A_E = A_E.iloc[53:201, 0:4]
+    ## a
+        A_440 = (A_E.iloc[:, 1].values[np.where((A_E.iloc[:, 0].values) == 440)])
+        E_440 = (A_E.iloc[:, 2].values[np.where((A_E.iloc[:, 0].values) == 440)])
+        a_chl_440=A_440*(chl**E_440)
+        A = (A_E.iloc[:, 1].values[np.where((A_E.iloc[:, 0].values) == lam)])
+        E = (A_E.iloc[:, 2].values[np.where((A_E.iloc[:, 0].values) == lam)])
+        a_chl= A*(chl**E)
+        a_cdom=a_chl_440*M*np.exp(-alpha*(lam-440))
+        a=a_w+a_chl+a_cdom
+
+    ## b
+        b_w= 0.00583 * ((400/lam)  **  4.322)
+        bs= 1.1513 * ((400 / lam) ** 1.7)
+        bl= 0.3411 * ((400 / lam) ** 0.3)
+        b_p=Bs*bs+Bl*bl
+        b=b_w+b_p
+        eta=b_w/b
+        c=a+b
+        return sum(abs(((a/mu)*np.sqrt(1+((b*mu)/a)*((0.451+2.584*eta)-(1/mu)*(0.205+0.521*eta)))-kd_jerlov)/(kd_jerlov))+abs((c-c_jerlov)/c_jerlov))
+    intial_guess= [0.0044,0.2,0.016,0.1,0.011]
+    #bnds=((0,100),(0,100),(0,100),(0,100),(0.0001,0.08))
+    sol = minimize(k_model,intial_guess,method='SLSQP')
+    vars.append(sol.x)
+    mus.append(mu)
+    cost.append(sol.fun)
+    #print(sol.x)
+    #print(sol.fun)
+    #print(vars)
+    #print(cost,mus)
+    ind=cost.index(min(cost))
+    #print(vars[ind],vars[ind])
+result=vars[ind]
+new_mu=mus[ind]
+
+
+for j in range (run):
+    def get_c(lam,chl,M,alpha,Bs,Bl,new_mu):
+        mu=new_mu
+        a_w = pd.read_excel("C:\\Users\\Bar Blas\\Desktop\\pure_sea_water\\buit_pure.xlsx")
+        a_w = a_w.iloc[53:201, 3].values
+        A_E =pd.read_excel("C:\\Users\\Bar Blas\\Desktop\\A_E\\A_E.xlsx")
+        A_E = A_E.iloc[53:201, 0:4]
+        A_440 = (A_E.iloc[:, 1].values[np.where((A_E.iloc[:, 0].values) == 440)])
+        E_440 = (A_E.iloc[:, 2].values[np.where((A_E.iloc[:, 0].values) == 440)])
+        a_chl_440=A_440*(chl**E_440)
+        A = (A_E.iloc[:, 1].values[np.where((A_E.iloc[:, 0].values) == lam)])
+        E = (A_E.iloc[:, 2].values[np.where((A_E.iloc[:, 0].values) == lam)])
+        a_chl= A*(chl**E)
+        a_cdom=a_chl_440*M*np.exp(-alpha*(lam-440))
+        a=a_w+a_chl+a_cdom
+
+
+    #b
+        b_w= 0.00583 * ((400/lam)  **  4.322)
+        bs= 1.1513 * ((400 / lam) ** 1.7)
+        bl= 0.3411 * ((400 / lam) ** 0.3)
+        b_p=Bs*bs+Bl*bl
+        b=b_w+b_p
+        eta=b_w/b
+        c=a+b
+        return sum(abs(((a/mu)*np.sqrt(1+((b*mu)/a)*((0.451+2.584*eta)-(1/mu)*(0.205+0.521*eta)))-kd_jerlov)/(kd_jerlov)))
+
+            #+sum(np.sqrt((c - c_jerlov) ** 2))
+        #return b+a
+    new_min=get_c(lam_jerlov,vars[j][0],vars[j][1],vars[j][2],vars[j][3],vars[j][4],mus[j])
+    all_min.append(new_min)
+
+ind=all_min.index(min(all_min))
+#print(ind)
+#print(all_min[ind])
+#print(mus[ind])
+
+
+def get_c(lam, chl, M, alpha, Bs, Bl, new_mu):
+    mu = new_mu
+    a_w = pd.read_excel("C:\\Users\\Bar Blas\\Desktop\\pure_sea_water\\buit_pure.xlsx")
+    a_w = a_w.iloc[53:201, 3].values
+    A_E = pd.read_excel("C:\\Users\\Bar Blas\\Desktop\\A_E\\A_E.xlsx")
+    A_E = A_E.iloc[53:201, 0:4]
+    A_440 = (A_E.iloc[:, 1].values[np.where((A_E.iloc[:, 0].values) == 440)])
+    E_440 = (A_E.iloc[:, 2].values[np.where((A_E.iloc[:, 0].values) == 440)])
+    a_chl_440 = A_440 * (chl ** E_440)
+    A = (A_E.iloc[:, 1].values[np.where((A_E.iloc[:, 0].values) == lam)])
+    E = (A_E.iloc[:, 2].values[np.where((A_E.iloc[:, 0].values) == lam)])
+    a_chl = A * (chl ** E)
+    a_cdom = a_chl_440 * M * np.exp(-alpha * (lam - 440))
+    a = a_w + a_chl + a_cdom
+
+    # b
+    b_w = 0.00583 * ((400 / lam) ** 4.322)
+    bs = 1.1513 * ((400 / lam) ** 1.7)
+    bl = 0.3411 * ((400 / lam) ** 0.3)
+    b_p = Bs * bs + Bl * bl
+    b = b_w + b_p
+    eta = b_w / b
+    c = a + b
+    return (a/mu)*np.sqrt(1+((b*mu)/a)*((0.451+2.584*eta)-(1/mu)*(0.205+0.521*eta))),a,b
+kd,a,b=get_c(lam_jerlov,vars[ind][0],vars[ind][1],vars[ind][2],vars[ind][3],vars[ind][4],mus[ind])
+
+
+#plt.subplot(1, 2, 1)
+#plt.plot(lam,kd)
+#plt.plot(lam,kd_jerlov)
+#plt.title("$K_d$")
+
+kd_jerlov=(A_E.iloc[:, 7].values)
+plt.subplot(2, 2, 1)
+plt.plot(lam,kd,label='Estimated',color='k')
+plt.plot(lam,kd_jerlov,label= 'Jerlov ground truth')
+plt.title("$k_d$")
+plt.xlabel(' $\lambda$ [nm]',fontsize=14)
+plt.ylabel('$k_d$ $[1/m]$',fontsize=14)
+plt.legend()
+
+plt.subplot(2, 2, 2)
+plt.plot(lam,b+a,label='Estimated',color='k')
+plt.plot(lam,c_jerlov,label= 'Jerlov ground truth')
+plt.title("c")
+plt.xlabel(' $\lambda$ [nm]',fontsize=14)
+plt.ylabel('$c$ $[1/m]$',fontsize=14)
+plt.legend()
+
+
+plt.subplot(2, 2, 3)
+plt.plot(lam,b,label='Estimated',color='k')
+plt.plot(lam,b_jerlov,label= 'Jerlov ground truth')
+plt.title("$b$")
+plt.xlabel(' $\lambda$ [nm]',fontsize=14)
+plt.ylabel('$b$ $[1/m]$',fontsize=14)
+plt.legend()
+
+
+plt.subplot(2, 2, 4)
+plt.plot(lam,a, label= 'Estimated',color='k')
+plt.plot(lam,a_jerlov,label= 'Jerlov ground truth')
+plt.title("a")
+plt.xlabel(' $\lambda$ $[nm]$',fontsize=14)
+plt.ylabel('$a$ $[1/m]$',fontsize=14)
+plt.tight_layout(pad=1.0)
+plt.savefig('type1')
+plt.legend()
+plt.show()
+
+
+plt.savefig('type1')
+f=open('type1.txt','w')
+f.write('paramas = '+ str(vars[ind])+'\n')
+f.write('mu = '+ str(mus[ind])+'\n')
+f.close()
+
+
+rms=a+b-c_jerlov
+rmse=np.sqrt(np.sum((rms*rms))/148)
+print(rmse)
+
+plt.plot(lam,kd,label='Estimated',color='k')
+plt.plot(lam,kd_jerlov,label= 'Simulated ground truth')
+plt.xlabel(' $\lambda$ [nm]',fontsize=24)
+plt.ylabel('$k_d$ $[1/m]$',fontsize=24)
+plt.legend(fontsize=24)
+plt.show()
+
+
+plt.plot(lam,b+a,label='Estimated',color='k')
+plt.plot(lam,c_jerlov,label= 'Simulated ground truth')
+plt.xlabel(' $\lambda$ [nm]',fontsize=24)
+plt.ylabel('$c$ $[1/m]$',fontsize=24)
+plt.legend(fontsize=24)
+plt.show()
+
+plt.plot(lam,b,label='Estimated',color='k')
+plt.plot(lam,b_jerlov,label= 'Jerlov ground truth')
+plt.xlabel(' $\lambda$ [nm]',fontsize=24)
+plt.ylabel('$b$ $[1/m]$',fontsize=24)
+plt.legend(fontsize=24)
+plt.show()
+
+plt.plot(lam,a, label= 'Estimated',color='k')
+plt.plot(lam,a_jerlov,label= 'Jerlov ground truth')
+plt.xlabel(' $\lambda$ $[nm]$',fontsize=24)
+plt.ylabel('$a$ $[1/m]$',fontsize=24)
+
+plt.legend(fontsize=24)
+plt.show()
