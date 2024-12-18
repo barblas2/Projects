@@ -1,0 +1,98 @@
+import numpy as np
+import matplotlib as plt
+import cv2
+
+
+def find_transform(pointset1, pointset2):
+    x = []
+    xtag = []
+    for i in pointset2:
+        for j in i:
+            xtag.append(j)
+    for i in range(len(pointset1)):
+        x.append([pointset1[i][0], pointset1[i][1], 0, 0, 1, 0, pointset1[i][0] * -pointset2[i][0],
+                  pointset2[i][0] * -pointset1[i][1]])
+        x.append([0, 0, pointset1[i][0], pointset1[i][1], 0, 1, pointset1[i][0] * -pointset2[i][1],
+                  pointset2[i][1] *-pointset1[i][1]])
+    x = np.array(x)
+    xtag = np.array(xtag)
+    calc = np.linalg.pinv(x)
+    T = np.matmul(calc, xtag)
+    T = np.append(T, 1)
+    Tmat = np.zeros([3, 3])
+    Tmat[0][0] = T[0]
+    Tmat[0][1] = T[1]
+    Tmat[0][2] = T[4]
+    Tmat[1][0] = T[2]
+    Tmat[1][1] = T[3]
+    Tmat[1][2] = T[5]
+    Tmat[2][0] = T[6]
+    Tmat[2][1] = T[7]
+    Tmat[2][2] = T[8]
+    T = Tmat
+    return (T)
+
+
+find_transform(np.float32(
+    [[0, 0], [int(750 / 3), 0], [int(2 * 750 / 3), 0], [750, 0], [750, 921], [int(2 * 750 / 3), 921],
+     [int(750 / 3), 921], [0, 921]]), np.float32(
+    [[96, 282], [220, 276], [344, 276], [468, 282], [474, 710], [350, 744], [227, 742], [103, 714]]))
+
+
+
+
+
+
+def transform_image(image, T):
+    row, col = image.shape
+    new = np.zeros((row, col))
+    x, y = np.meshgrid([(range(0, 921))], [(range(0, 750))])
+    x = x.ravel()
+    y = y.ravel()
+    tot = np.vstack((x, y))
+    tot = np.transpose(tot)
+    ones1 = np.full(690750, 1)
+    tot = np.c_[tot, ones1]
+    inverseMatrix = np.linalg.inv(T)
+    mat = inverseMatrix @ np.transpose(tot)
+    mat[0]/=mat[2]
+    mat[1]/=mat[2]
+    mat = np.transpose(mat)
+    mat=np.delete(mat, 2, 1)
+    tot=np.delete(tot, 2, 1)
+    neg=[]
+    for i in range(tot.shape[0]):
+        if mat[i][0]<0 or mat[i][1]<0:
+            neg.append(i)
+        if mat[i][1]>= image.shape[0]-20 or mat[i][0]>= image.shape[1]-20:
+            neg.append(i)
+    mat = np.delete(mat, neg, 0)
+    tot = np.delete(tot, neg, 0)
+
+
+    for i in range(len(tot)):
+        new[tot[i][1]][tot[i][0]]=image[round(mat[i][1])][round(mat[i][0])]
+    new = new.astype(np.uint8)
+    cv2.imshow('new wormhole', new +image   )
+    #cv2.imshow('wormhole',new)
+    cv2.waitKey(0)
+    cv2.destroyAllWindows()
+    return new +image
+
+images_2=transform_image(cv2.imread("C:\\Users\\Public\\git_images\\start_wormhole.jpg",0), np.array(
+    [[4.88222209e-01, 3.05334256e-04, 9.84084999e+01], [-3.70653295e-03, 4.69325126e-01, 2.80022009e+02],
+     [-3.51675929e-06, -2.33739404e-05, 1]]))
+
+images_3=transform_image(images_2, np.array(
+    [[4.88222209e-01, 3.05334256e-04, 9.84084999e+01], [-3.70653295e-03, 4.69325126e-01, 2.80022009e+02],
+     [-3.51675929e-06, -2.33739404e-05, 1]]))
+
+final=transform_image(images_3, np.array(
+    [[4.88222209e-01, 3.05334256e-04, 9.84084999e+01], [-3.70653295e-03, 4.69325126e-01, 2.80022009e+02],
+     [-3.51675929e-06, -2.33739404e-05, 1]]))
+
+
+save_path = r'C:\Users\Public\git_images\output_image.jpg'
+
+
+cv2.imwrite(save_path, final)
