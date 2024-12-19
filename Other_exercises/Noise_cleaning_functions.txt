@@ -1,0 +1,135 @@
+import cv2
+import matplotlib.pyplot as plt
+import numpy as np
+import random
+from scipy import signal as sp
+
+
+
+
+
+def clean_SP_noise_single(im, radius):
+    row, col = im.shape
+    clean_image = im.copy()
+    med = []
+    for i in range(row):
+        for j in range(col):
+            if i < row - radius and j < col - radius and j > radius and i > radius:
+                X, Y = np.meshgrid(np.arange(i - radius, i + radius + 1), np.arange(j - radius, j + radius + 1))
+                for k in range(len(X.ravel())):
+                    med.append(clean_image[X.ravel()[k]][Y.ravel()[k]])
+                clean_image[i][j] = int(np.median(med))
+                med = []
+            if i >= row - radius and j < col - radius and j > radius:
+                X, Y = np.meshgrid(np.arange(i - radius, i), np.arange(j - radius, j + radius + 1))
+                for k in range(len(X.ravel())):
+                    med.append(clean_image[X.ravel()[k]][Y.ravel()[k]])
+                clean_image[i][j] = int(np.median(med))
+                med = []
+            if i <= radius and j < col - radius and j > radius:
+                X, Y = np.meshgrid(np.arange(i, i + radius + 1), np.arange(j - radius, j + radius + 1))
+                for k in range(len(X.ravel())):
+                    med.append(clean_image[X.ravel()[k]][Y.ravel()[k]])
+                clean_image[i][j] = int(np.median(med))
+                med = []
+            if i < row - radius and j < col - radius and i > radius:
+                X, Y = np.meshgrid(np.arange(i - radius, i + radius + 1), np.arange(j, j + radius + 1))
+                for k in range(len(X.ravel())):
+                    med.append(clean_image[X.ravel()[k]][Y.ravel()[k]])
+                clean_image[i][j] = int(np.median(med))
+                med = []
+            if i < row - radius and j >= col - radius and i > radius:
+                X, Y = np.meshgrid(np.arange(i - radius, i + radius + 1), np.arange(j - radius, j))
+                for k in range(len(X.ravel())):
+                    med.append(clean_image[X.ravel()[k]][Y.ravel()[k]])
+                clean_image[i][j] = int(np.median(med))
+                med = []
+
+    return (clean_image)
+
+
+def clean_SP_noise_multiple(images):
+    clean_image = sum((images/images.shape[0])).astype(np.uint8)
+    return clean_image
+
+def add_Gaussian_Noise(im, s):
+    row, col = im.shape
+    noise = np.random.normal(0, s, (row, col))
+    NoisyIm = im+noise
+    NoisyIm = NoisyIm.astype(np.uint8)
+    return NoisyIm
+
+
+def clean_Gaussian_noise(im, radius, maskSTD):
+    r = radius
+    x = []
+    for i in range(-r, r+1):
+        for j in range( -r, r+1):
+            x.append((np.exp(-((i**2)+(j**2))/(2*(maskSTD**2)))))
+    filter = np.array(x).reshape(2*r+1, 2*r+1)
+    filter = filter/(np.sum(filter))
+    newim = sp.convolve2d(im, filter)
+    newim = newim.astype(np.uint8)
+    cleanIm = newim
+
+    return cleanIm
+
+
+def clean_Gaussian_noise_bilateral(im, radius, stdSpatial, stdIntensity):
+    row, col = im.shape
+    im = im.astype(int)
+    newImage = np.zeros([row, col])
+    for i in range(row):
+        for j in range(col):
+            if (i < row -radius and i >radius and j > radius and j < col -radius) :
+                window = im[i - radius:i + radius + 1, j - radius:j + radius + 1]
+                X, Y = np.meshgrid(np.arange(i-radius, i+radius+1), np.arange(j-radius, j+radius+1))
+                top = -(((X-i)**2)+((Y-j)**2))
+                gs = np.exp(top / (2 * (stdSpatial ** 2)))
+                gs = gs/(np.sum(gs))
+                top2 = -((im[X, Y]-im[i, j])**2)
+                gi = np.exp(top2 / (2 * (stdIntensity ** 2)))
+                gi = gi / (np.sum(gi))
+                newImage[i][j] =np.sum(gi * gs *np.transpose(window))/(np.sum(gi * gs))
+            if (i >= row -radius and j > radius and j < col -radius):
+                window = im[i - radius:i, j - radius:j + radius + 1]
+                X, Y = np.meshgrid(np.arange(i-radius, i), np.arange(j-radius, j+radius+1))
+                top=-(((X-i)**2)+((Y-j)**2))
+                gs = np.exp(top / (2 * (stdSpatial ** 2)))
+                gs=gs/(np.sum(gs))
+                top2=-((im[X, Y]-im[i, j])**2)
+                gi = np.exp(top2 / (2 * (stdIntensity ** 2)))
+                gi = gi / (np.sum(gi))
+                newImage[i][j] =np.sum(gi * gs *np.transpose(window))/(np.sum(gi * gs))
+            if (i <=radius and j > radius and j < col -radius):
+                window = im[i:i + radius + 1, j - radius:j + radius + 1]
+                X, Y = np.meshgrid(np.arange(i, i+radius+1), np.arange(j-radius, j+radius+1))
+                top = -(((X-i)**2)+((Y-j)**2))
+                gs = np.exp(top / (2 * (stdSpatial ** 2)))
+                gs = gs/(np.sum(gs))
+                top2 = -((im[X, Y]-im[i, j])**2)
+                gi = np.exp(top2 / (2 * (stdIntensity ** 2)))
+                gi = gi / (np.sum(gi))
+                newImage[i][j] = np.sum(gi * gs * np.transpose(window))/(np.sum(gi * gs))
+            if (i < row -radius and i >radius and j >=col- radius) :
+                window = im[i - radius:i + radius + 1, j - radius:j ]
+                X, Y = np.meshgrid(np.arange(i-radius, i+radius+1), np.arange(j-radius, j))
+                top = -(((X-i)**2)+((Y-j)**2))
+                gs = np.exp(top / (2 * (stdSpatial ** 2)))
+                gs = gs/(np.sum(gs))
+                top2 = -((im[X, Y]-im[i, j])**2)
+                gi = np.exp(top2 / (2 * (stdIntensity ** 2)))
+                gi = gi / (np.sum(gi))
+                newImage[i][j] =np.sum(gi * gs * np.transpose(window))/(np.sum(gi * gs))
+            if (i < row -radius and i >radius and j <= radius):
+                window = im[i - radius:i + radius + 1, j:j + radius + 1]
+                X, Y = np.meshgrid(np.arange(i-radius, i+radius+1), np.arange(j, j+radius+1))
+                top = -(((X-i)**2)+((Y-j)**2))
+                gs = np.exp(top / (2 * (stdSpatial ** 2)))
+                gs = gs/(np.sum(gs))
+                top2 = -((im[X, Y]-im[i, j])**2)
+                gi = np.exp(top2 / (2 * (stdIntensity ** 2)))
+                gi = gi / (np.sum(gi))
+                newImage[i][j] = np.sum(gi * gs * np.transpose(window))/(np.sum(gi * gs))
+
+    return newImage
