@@ -1,0 +1,29 @@
+from fastapi import FastAPI
+from fastapi.responses import HTMLResponse
+
+app = FastAPI()
+
+# Define the path to the file
+file_path = "/home/sagi/data.txt"
+
+# Define the route to display the content in HTML format
+@app.get("/", response_class=HTMLResponse)
+async def home():
+    # Read the file content on each request
+    with open(file_path, 'r') as file:
+        file_content = file.read()
+
+    # Convert file content to a string (if needed)
+    my_string = str(file_content)
+
+    return f'''
+    <html>
+        <head>
+            <title> Display </title>
+        </head>
+        <body>
+            <h2> Data from File </h2>
+            <p>{my_string}</p>
+        </body>
+    </html>
+    '''
