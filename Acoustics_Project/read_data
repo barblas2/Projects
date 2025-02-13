@@ -1,0 +1,46 @@
+import time
+import serial
+import socket
+import serial.tools.list_ports
+
+
+
+
+
+################
+#read serial ports
+
+ports =serial.tools.list_ports.comports()[:-1]
+serial_ports = {}
+for counter, port in enumerate(ports, start=1):
+    port_name=port.device
+    serial_ports[f"ser{counter}"] = serial.Serial(port_name, 9600, timeout=1)
+print(serial_ports)
+
+
+###############
+# configure acoustic recivervs based on epoch time 
+
+for i in range(len(serial_ports)):
+    ser=serial_ports[list(serial_ports.keys())[i]]
+    ser.write("LIVECM".encode('ascii'))
+    time.sleep(5)
+    ser.write(str(time.time()).encode('ascii'))
+    time.sleep(5)
+    ser.write('EX!'.encode('ascii'))
+    time.sleep(5)
+
+##############
+# run infinite loop to read data and save to text file
+
+while True:
+  for i in range(len(serial_ports)):
+      key_at_i = list(serial_ports.keys())[i]
+      key_at_i = serial_ports[key_at_i]
+      file=open('/home/sagi/data.txt','a')
+      response=key_at_i.readline()
+
+      if len (response)>0:
+            print(response)
+            file.writelines(response.decode())
+  file.close()
