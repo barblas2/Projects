@@ -1,0 +1,168 @@
+import os
+import shutil
+
+import torch
+
+from pathlib import Path
+
+import matplotlib.pyplot as plt
+plt.style.use('dark_background')
+plt.rcParams['figure.facecolor']  = '#222'
+plt.rcParams['axes.facecolor']    = '#222'
+plt.rcParams['savefig.facecolor'] = '#222'
+
+import typer
+app = typer.Typer(pretty_exceptions_show_locals=False)
+
+import colorlab.disk as disk
+import colorlab.preprocess as preprocess
+from colorlab.consider import consider
+from colorlab.bernstein import bernstein_matrix
+from colorlab.colors import rainbow
+
+import tools
+
+@app.command(name='clustermatch')
+def clustermatch(
+        outdir: str = typer.Option(),
+        path_image: str = typer.Option(..., '--image'),
+        path_camera: str = typer.Option(..., '--camera'),
+        path_light: str = typer.Option(..., '--light'),
+):
+    outpath = lambda path: Path(outdir).joinpath(path)
+
+    # Load ---------------------------------------------------------------------
+    waves_S, S = consider(disk.read_matrix(path_camera)).map(lambda X: (X[:,0], X[:,1:].T)).content
+    rect_surf_Y = preprocess.resize_image(disk.read_image(path_image), width=100)
+    shape_rect_Y = rect_surf_Y.shape    
+    surf_L = consider(disk.read_matrix(path_light))\
+        .map(lambda X: preprocess.interp(waves_S, X[:,0], X[:,1].view(1, -1)))\
+        .content.flatten()
+    # Spec ---------------------------------------------------------------------
+    surf_Y = rect_surf_Y.view(S.shape[0], -1)
+    rect_surf_Y = surf_Y.view(shape_rect_Y)
+    spec_surf_Y = torch.linalg.lstsq(S, surf_Y).solution
+    refl_surf_Y = spec_surf_Y / (surf_L + 1e-7).view(-1, 1) # [wave, idx]
+    # kd -----------------------------------------------------------------------    
+    make_B = lambda num: bernstein_matrix(torch.linspace(0, 1, S.shape[1]), num)
+    true_kd = make_B(5) @ torch.tensor([0.4, 0.3, 0.2, 0.9, 1.0])*0.15
+    # Submerge + cluster -------------------------------------------------------
+    many_deep_Y = torch.stack([
+        S @ tools.submerge_refl(refl_surf_Y, surf_L, true_kd, depth)
+        for depth in torch.linspace(0, 40, 20)
+    ], dim=0)
+    many_angles_deep_Y = torch.stack([
+        tools.cart2sph(deep_Y)[1:]
+        for deep_Y in many_deep_Y
+    ], dim=0)
+    many_centers_deep_Y = torch.stack([
+        tools.classify(angles_deep_Y.T)[1]
+        for angles_deep_Y in many_angles_deep_Y
+    ], dim=0)
+    # Matching -----------------------------------------------------------------
+    new_centers_surf_Y = tools.match_centers(S, many_centers_deep_Y[0], many_centers_deep_Y[-1])
+        
+    # PLotting -----------------------------------------------------------------
+    nrows, ncols = 3, 1	
+    fig, axs = plt.subplots(nrows, ncols, figsize=(5*ncols, 5*nrows))
+    
+    for i, centers_deep_Y in enumerate(many_centers_deep_Y):
+        axs[0].scatter(centers_deep_Y[0], centers_deep_Y[1], s=10, color='#666666')
+
+    axs[0].scatter(many_centers_deep_Y[0, 0], many_centers_deep_Y[0, 1], s=10, color='#ffff00')
+    axs[0].scatter(many_centers_deep_Y[-1, 0], many_centers_deep_Y[-1, 1], s=10, color='#44ffff')
+    axs[0].scatter(new_centers_surf_Y[0], new_centers_surf_Y[1], s=10, color='#44ff44')
+
+    fig.savefig(outpath('plot.pdf'))
+
+    # Images -------------------------------------------------------------------
+    disk.write_image(outpath('rect_surf_Y.png'), rect_surf_Y)
+
+@app.command(name='main')
+def main(
+        outdir: str = typer.Option(),
+        path_image: str = typer.Option(..., '--image'),
+        path_camera: str = typer.Option(..., '--camera'),
+        path_light: str = typer.Option(..., '--light'),
+):
+    outpath = lambda path: Path(outdir).joinpath(path)
+
+    # Load ---------------------------------------------------------------------
+    waves_S, S = consider(disk.read_matrix(path_camera)).map(lambda X: (X[:,0], X[:,1:].T)).content
+    rect_surf_Y = preprocess.resize_image(disk.read_image(path_image), width=500)
+    shape_rect_Y = rect_surf_Y.shape    
+    surf_L = consider(disk.read_matrix(path_light))\
+        .map(lambda X: preprocess.interp(waves_S, X[:,0], X[:,1].view(1, -1)))\
+        .content.flatten()
+    # Spec ---------------------------------------------------------------------
+    surf_Y = rect_surf_Y.view(S.shape[0], -1)
+    rect_surf_Y = surf_Y.view(shape_rect_Y)
+    spec_surf_Y = torch.linalg.lstsq(S, surf_Y).solution
+    refl_surf_Y = spec_surf_Y / (surf_L + 1e-7).view(-1, 1) # [wave, idx]
+    # kd -----------------------------------------------------------------------
+    depth = 10
+    make_B = lambda num: bernstein_matrix(torch.linspace(0, 1, S.shape[1]), num)
+    true_kd = make_B(5) @ torch.tensor([0.4, 0.3, 0.2, 0.9, 1.0])*0.15
+
+    deep_L = surf_L*torch.exp(-true_kd*depth)
+    spec_deep_Y = refl_surf_Y*deep_L.view(-1, 1)
+
+    deep_Y = S @ spec_deep_Y
+    rect_deep_Y = deep_Y.view(shape_rect_Y)
+    
+    # angles -------------------------------------------------------------------
+    angles_deep_Y = tools.get_angles(deep_Y)
+    angles_surf_Y = tools.get_angles(surf_Y)
+
+    # Clustering ---------------------------------------------------------------
+    labels_surf, centers_surf = tools.classify(angles_surf_Y.T)
+    labels_deep, centers_deep = tools.classify(angles_deep_Y.T)
+
+    # Cluster verification .....................................................
+    nrows, ncols = 3, 1	
+    fig, axs = plt.subplots(nrows, ncols, figsize=(10*ncols, 5*nrows))    
+    axs[0].scatter(angles_deep_Y[0], angles_deep_Y[1], s=0.1, c=labels_deep)
+    axs[0].scatter(centers_deep[0], centers_deep[1], s=5, c='#ffffff')
+    fig.savefig(outpath('plot.png'))
+    
+    # Label stuff --------------------------------------------------------------
+    label_dict = tools.get_label_dict(labels_deep, labels_surf)
+    labels_deep = torch.tensor(list(map(lambda label : label_dict[label.item()], labels_deep)))
+    
+    rgb_labels_surf = tools.labels2rgbs(labels_surf)    
+    rect_rgb_labels_surf = rgb_labels_surf.view(shape_rect_Y)
+        
+    rgb_labels_deep = tools.labels2rgbs(labels_deep)    
+    rect_rgb_labels_deep = rgb_labels_deep.view(shape_rect_Y)
+
+    # Matrix stuff -------------------------------------------------------------
+    label2mat = tools.get_label2mat(surf_Y, labels_surf)
+    fixed_deep_Y = tools.apply_label2mat(label2mat, deep_Y, labels_deep)
+    rect_fixed_deep_Y = fixed_deep_Y.view(shape_rect_Y)
+
+    # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+    surf = surf_Y/surf_Y.mean()
+    deep = deep_Y/deep_Y.mean()
+    fixed_deep = fixed_deep_Y/fixed_deep_Y.mean()
+
+    M = tools.get_bg2r_matrix(surf_Y)
+    naive = torch.cat([M @ deep_Y[1:], deep_Y[1:]], dim=0)
+    
+    print('Error deep', (surf[0] - deep[0]).norm())
+    print('Error naive', (surf[0] - naive[0]).norm())
+    print('Error fixed', (surf[0] - fixed_deep[0]).norm())
+    # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+
+    # Visualize ----------------------------------------------------------------
+    disk.write_image(outpath('rect_surf_Y.png'), rect_surf_Y)
+    disk.write_image(outpath('rect_deep_Y.png'), rect_deep_Y)
+    
+    disk.write_image(outpath('rect_fixed_deep_Y.png'), rect_fixed_deep_Y)
+    
+    disk.write_image(outpath('rect_rgb_labels_surf.png'), rect_rgb_labels_surf, normalize=False)
+    disk.write_image(outpath('rect_rgb_labels_deep.png'), rect_rgb_labels_deep, normalize=False)
+       
+@app.command(name='test')
+def test():
+    print('test')
+if __name__ == '__main__': app()
