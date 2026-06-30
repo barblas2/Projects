@@ -1,0 +1,177 @@
+import torch
+import math
+from scipy.linalg import null_space
+
+def bernstein_matrix(x, N):
+    n = N-1
+    return torch.stack([
+        math.comb(n, k)*(x**k)*(1 - x)**(n-k)
+        for k in range(n+1)
+    ], dim=1)
+def implicit_bernstein_matrix(x, N):
+    B = bernstein_matrix(x, N)
+    implicit_B = torch.tensor(null_space(B.T)).T
+    return implicit_B
+
+def rainbow(i):
+    colors = [
+        "#FF0000",
+        "#FF7F00",
+        "#FFFF00",
+        "#00FF00",
+        "#0000FF",
+        "#4B0082",
+        "#8B00FF" 
+    ][::-1]
+    return colors[i % len(colors)]
+
+class Consider:
+    def __init__(self, content):
+        self.content = content
+    def map(self, func):
+        return Consider(func(self.content))
+
+def consider(obj):
+    return Consider(obj)
+import pandas as pd
+import torch
+from torchvision import transforms
+from PIL import Image
+
+def read_matrix(path_csv, *args, **kwargs):
+    matrix = torch.tensor(
+        pd.read_csv(path_csv, *args, **kwargs).values
+    ).float()
+    return matrix
+def read_image(path_image):
+    image = transforms.ToTensor()(Image.open(path_image))
+    return image
+def write_image(path_image, image, normalize=True):
+    if normalize:
+        image = image/image.max()
+    transforms.ToPILImage()(image).save(path_image)
+import torch
+from torch import nn
+
+def smooth(func, noise, samples=1):
+    noisify = lambda arg : arg + noise*arg.mean()*torch.randn_like(arg)
+    def func_smooth(*args, **kwargs):
+        losses = torch.stack([
+            func(
+                *[noisify(val) for val in args],
+                **{key: noisify(val) for key, val in kwargs.items()},
+            )
+            for _ in range(samples)
+        ]).mean()
+        return losses.mean()
+    
+    return func_smooth
+class Minimizer(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+        self.parameter_keys = []
+        self.parameter_maps = {};
+        self.parameter_noises = {};
+
+        self.optimizer = None        
+        self.optimizer_type = torch.optim.Adam
+        self.optimizer_args = []
+        self.optimizer_kwargs = {'lr': 1e-3}
+
+        self.schefuler = None        
+        self.scheduler_type = torch.optim.lr_scheduler.ReduceLROnPlateau
+        self.scheduler_args = []
+        self.scheduler_kwargs = {'factor': 0.1, 'patience': 100}
+    # Setters
+    def set_parameters(self, **params):
+        for key, guess in params.items():
+            setattr(self, key, nn.Parameter(guess))
+            self.parameter_keys.append(key)
+            
+        return self
+    def set_optimizer(self, optimizer):
+        self.optimizer_type = optimizer
+
+        return self
+    def set_scheduler(self, scheduler):
+        self.scheduler_type = scheduler
+
+        return self
+    def set_optimizer_args(self, *args, **kwargs):
+        self.optimizer_args = args
+        self.optimizer_kwargs.update(kwargs)
+
+        return self
+    def set_scheduler_args(self, *args, **kwargs):
+        self.scheduler_args = args
+        self.scheduler_kwargs.update(kwargs)
+
+        return self
+    def set_parameter_maps(self, **maps):
+        self.parameter_maps = maps
+        return self
+    def set_parameter_noises(self, **noises):
+        self.parameter_noises = noises
+        return self
+        
+    # Optimization
+    def forward(self, loss_fn):
+        return loss_fn(*[
+            parameter_map(
+                parameter_noise(
+                    getattr(self, key)
+                )
+            )
+            for key in self.parameter_keys
+            for parameter_map in [self.parameter_maps.get(key, lambda x : x)]
+            for parameter_noise in [self.parameter_noises.get(key, lambda x : x)]
+        ])
+    def grad_step(self, loss_fn):
+        loss = self(loss_fn)
+        self.optimizer.zero_grad()
+        loss.backward()
+        self.optimizer.step()
+        self.scheduler.step(loss.item())
+        
+        return loss.item()
+    def fit(self, loss_fn, lr_stop, print_every):
+        self.optimizer = self.optimizer_type(self.parameters(), *self.optimizer_args, **self.optimizer_kwargs)
+        self.scheduler = self.scheduler_type(self.optimizer, *self.scheduler_args, **self.scheduler_kwargs)
+
+        lr_stop = 0.01*self.optimizer.param_groups[0]["lr"] if lr_stop is None else lr_stop
+        
+        i = 0
+        while True:
+            i += 1
+            loss = self.grad_step(loss_fn)
+            if print_every and i % print_every == 0:
+                print("Epoch={}, LR={}, Loss={}".format(i, self.scheduler.get_last_lr()[0], loss), end="\r")
+            if self.optimizer.param_groups[0]["lr"] <= lr_stop: break
+
+        out = [
+            parameter_map(getattr(self, key).detach())
+            for key in self.parameter_keys
+            for parameter_map in [self.parameter_maps.get(key, lambda x : x)]
+        ]
+        if len(out) == 1: out = out[0]
+        return out
+import torch
+import numpy as np
+from torchvision import transforms
+
+def interp(x, xp, Fp):
+    Fp = Fp.view(Fp.shape[0], -1)
+
+    interp_Fp = np.stack([np.interp(x, xp, fp) for fp in Fp], axis=0)
+    interp_Fp = torch.tensor(interp_Fp).float()
+    
+    return interp_Fp
+def resize_image(image, width=None, height=None):
+    h, w = image.shape[1:]
+    
+    if height is None: height = int(h * width / w)
+    if width is None: width = int(w * height / h)
+    
+    resized = transforms.Resize((height, width))(image)
+    return resized
