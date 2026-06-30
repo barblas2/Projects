@@ -1,0 +1,167 @@
+import torch
+import torch.nn.functional as F
+
+import colorlab.mini as mini
+
+from matplotlib.colors import to_rgb
+from sklearn.cluster import KMeans
+# import numpy as np
+
+from colorlab.colors import rainbow
+from colorlab.bernstein import bernstein_matrix
+
+def cart2sph(cart):
+    x, y, z = cart
+    
+    r = (x.pow(2) + y.pow(2) + z.pow(2)).sqrt()
+    theta = torch.atan2(y, x)
+    phi = torch.acos(z/r);
+    
+    sph = torch.stack([r, theta, phi], dim=0)
+
+    return sph
+def sph2cart(sph):
+    r, theta, phi = sph
+
+    x = r*torch.sin(phi) * torch.cos(theta)
+    y = r*torch.sin(phi) * torch.sin(theta)
+    z = r*torch.cos(phi)
+
+    cart = torch.stack([x, y, z], dim=0)
+    return cart    
+def get_angles(image):
+    R, G, B = image
+    angles = torch.stack([
+        torch.atan2(G, B),
+        torch.atan2(G, R),
+    ], dim=0)
+    return angles
+def classify(X, cluster_args=[], cluster_kwargs={'n_clusters': 3}):
+    kmeans = KMeans(*cluster_args, **cluster_kwargs)
+    kmeans.fit(X)
+    labels = kmeans.predict(X)
+
+    return torch.tensor(labels).int(), torch.tensor(kmeans.cluster_centers_).T.float()
+def labels2rgbs(labels):
+    shape = labels.shape
+    flat_rgbs = torch.tensor(list(map(lambda i: to_rgb(rainbow(i)), labels))).T
+    rgbs = flat_rgbs.view(3, *shape)
+
+    return rgbs
+def get_label_dict(labels1, labels2):
+    unique1, counts1 = labels1.unique(return_counts=True)
+    unique2, counts2 = labels2.unique(return_counts=True)
+
+    _, idx1 = torch.sort(counts1)
+    _, idx2 = torch.sort(counts2)
+
+    label_dict = {u1.item(): u2.item() for u1, u2 in zip(unique1[idx1], unique2[idx2])}
+
+    return label_dict
+def get_bg2r_matrix(rgbs):
+    M = torch.linalg.lstsq(rgbs[1:].T, rgbs[0].view(-1, 1)).solution
+    return M.T
+def get_label2mat(rgbs, labels):
+    label2img = {
+        label.item(): rgbs.T[labels == label.item()].T
+        for label in labels.unique()
+    }
+    label2mat = {
+        label: get_bg2r_matrix(part_rgbs)
+        for label, part_rgbs in label2img.items()
+    }
+
+    return label2mat
+def apply_label2mat(bg2r_dict, rgbs, labels):
+    unique_labels = labels.unique()
+    masks = torch.stack([
+        labels == label.item()
+        for label in unique_labels
+    ], dim=0)
+
+    masked_rgbs = torch.stack([
+        rgbs*mask
+        for mask in masks
+    ], dim=0)
+
+    reds = torch.stack([
+        bg2r_dict[label.item()] @ masked[1:]        
+        for masked, label in zip(masked_rgbs, unique_labels)
+    ], dim=0)
+
+    out_images = torch.stack([
+        torch.cat([red, masked[1:]], dim=0)
+        for masked, red in zip(masked_rgbs, reds)
+    ], dim=0)
+    out_image = out_images.sum(dim=0)
+    
+    return out_image
+def submerge_refl(refl_surf_Y, surf_L, true_kd, depth):
+    deep_L = surf_L*torch.exp(-true_kd*depth)
+    spec_deep_Y = refl_surf_Y*deep_L.view(-1, 1)
+
+    return spec_deep_Y
+def match_centers(S, centers1, centers2, dim_L=31):
+    r1_centers1 = torch.cat([torch.ones_like(centers1[0]).unsqueeze(0), centers1])        
+    rgb_centers1 = sph2cart(r1_centers1)
+    pinv_S = torch.linalg.pinv(S)
+    spec1 = pinv_S @ rgb_centers1
+
+    basis_L = bernstein_matrix(torch.linspace(0, 1, S.shape[1]), N=dim_L)
+
+    def loss_fn(new_centers1):
+        hd = fancy_hausdorff_dist(new_centers1, centers2)
+        return hd
+
+    def get_new_centers1(param_L):
+        L = basis_L @ param_L
+        rgb = S @ (spec1*L.view(-1, 1))
+        new_centers1 = cart2sph(rgb)[1:]
+        return new_centers1
+
+    # loss_fn = mini.smooth(loss_fn, noise=0.01, samples=1)
+    
+    new_centers1 = mini.Minimizer()\
+    	               .set_parameters(param_L = torch.ones(dim_L))\
+    	               .set_parameter_maps(param_L = get_new_centers1)\
+    	               .set_optimizer_args(lr=1e-2)\
+    	               .set_scheduler_args(patience=1000)\
+    	               .fit(loss_fn, lr_stop=1e-7, print_every=10)
+
+
+    #new_centers1 = mini.Minimizer()\
+    #	               .set_parameters(offset = torch.zeros(2).view(-1, 1))\
+    #	               .set_parameter_maps(offset = lambda x: x + centers1)\
+    #	               .set_optimizer_args(lr=1e-2)\
+    #	               .set_scheduler_args(patience=1000)\
+    #	               .fit(loss_fn, lr_stop=1e-7, print_every=10)
+
+    return new_centers1   
+def hausdorff_dist(pts1, pts2): # [coord, idx]
+    dist = lambda P1, P2: torch.stack([
+        (P2 - pt1.view(-1, 1)).norm(dim=0).min()
+        for pt1 in P1.T
+    ], dim=0).max()
+    
+    hausdorff = torch.max(
+        dist(pts1, pts2),
+        dist(pts2, pts1)
+    )
+    
+    return hausdorff
+def fancy_hausdorff_dist(pts1, pts2): # [coord, idx]
+    get_dists = lambda P1, P2: torch.stack([
+        (P2 - p1.view(-1, 1)).norm(dim=0).min()
+        for p1 in P1.T
+    ], dim=0)
+
+    dists12 = get_dists(pts1, pts2)
+    dists21 = get_dists(pts2, pts1)
+       
+    weights12 = F.softmax(dists12, dim=0)
+    weights21 = F.softmax(dists21, dim=0)
+
+    wdist12 = torch.dot(dists12, weights12)
+    wdist21 = torch.dot(dists21, weights21)
+
+    return wdist12 + wdist21
